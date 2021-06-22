@@ -252,24 +252,18 @@ func main() {
 
 	flag_jobs := flag.Int(
 		"j",
-		2,
+		100,
 		"num of concurrent jobs")
-
-	flag_slaves := flag.String(
-		"slaves",
-		"",
-		"CSV list of slave addresses")
 
 	flag_slave_metrics_address := flag.String(
 		"metrics_address",
-		"localhost:9011",
-		"slave metric address")
+		"localhost:9105",
+		"prometheus metrics address")
 
 	loggerHostname, _ = os.Hostname()
 
 	flag.Parse()
 	fmt.Fprintf(logger, "concurrency limit: %d", *flag_jobs)
-	fmt.Fprintf(logger, "slaves: %s", *flag_slaves)
 
 	p := &Forever{}
 	p.jobs = *flag_jobs

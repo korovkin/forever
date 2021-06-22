@@ -1,12 +1,10 @@
-# parallel
+# forever
 
-where `xargs` meets `foreman` or `goreman` for controlled, concurrent execution of shell commands.
-
-## builds
+Run a bunch of executables (bash cmd lines) forever
 
 ## build:
 ```
-go build cmd/*.go
+go build -o forever cmd/*.go
 ```
 
 or just:
