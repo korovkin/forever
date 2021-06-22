@@ -120,12 +120,19 @@ func executeCommand(p *Forever, ticket int, cmdLine string, commandNumber int) e
 		dt := time.Since(T_START)
 		fmt.Fprintf(
 			loggerOut,
-			"execute: done: dt: "+dt.String()+"\n",
-		)
+			fmt.Sprintln(
+				"execute:",
+				"cmdNum:", commandNumber,
+				"cmd:", cmdLine,
+				"dt:", dt.String()))
+
 		if err == nil {
 			p.StatNumCommandsDone.Inc()
-			p.StatCommandLatency.Observe(dt.Seconds())
+		} else {
+			p.StatNumCommandsError.Inc()
 		}
+
+		p.StatCommandLatency.Observe(dt.Seconds())
 	}()
 
 	// execute locally:
@@ -186,6 +193,7 @@ type Forever struct {
 	// stats:
 	StatNumCommandsStart prometheus.Counter
 	StatNumCommandsDone  prometheus.Counter
+	StatNumCommandsError prometheus.Counter
 	StatCommandLatency   prometheus.Summary
 }
 
@@ -283,8 +291,15 @@ func main() {
 	p.StatNumCommandsDone = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "commands_num_done",
-			Help: "num completed"})
+			Help: "num completed - ok"})
 	err = prometheus.Register(p.StatNumCommandsDone)
+	gotils.CheckFatal(err)
+
+	p.StatNumCommandsError = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "commands_num_error",
+			Help: "num completed - error"})
+	err = prometheus.Register(p.StatNumCommandsError)
 	gotils.CheckFatal(err)
 
 	p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
