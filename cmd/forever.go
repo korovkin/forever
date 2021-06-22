@@ -237,6 +237,39 @@ func metricsServer(p *Forever, serverAddress string) {
 	}
 }
 
+func setupPromMetrics(p *Forever, metricsAddress string) {
+	p.StatNumCommandsStart = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "commands_num_start",
+			Help: "num started"})
+	err := prometheus.Register(p.StatNumCommandsStart)
+	gotils.CheckFatal(err)
+
+	p.StatNumCommandsDone = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "commands_num_done",
+			Help: "num completed - ok"})
+	err = prometheus.Register(p.StatNumCommandsDone)
+	gotils.CheckFatal(err)
+
+	p.StatNumCommandsError = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "commands_num_error",
+			Help: "num completed - error"})
+	err = prometheus.Register(p.StatNumCommandsError)
+	gotils.CheckFatal(err)
+
+	p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
+		Name: "commands_latency",
+		Help: "commands latency stat",
+	})
+	err = prometheus.Register(p.StatCommandLatency)
+	gotils.CheckFatal(err)
+
+	// run the metrics server:
+	go metricsServer(p, metricsAddress)
+}
+
 func main() {
 	T_START := time.Now()
 	logger := newLogger(0, false)
@@ -266,39 +299,7 @@ func main() {
 
 	defer p.Close()
 
-	// stats:
-	{
-		p.StatNumCommandsStart = prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Name: "commands_num_start",
-				Help: "num started"})
-		err := prometheus.Register(p.StatNumCommandsStart)
-		gotils.CheckFatal(err)
-
-		p.StatNumCommandsDone = prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Name: "commands_num_done",
-				Help: "num completed - ok"})
-		err = prometheus.Register(p.StatNumCommandsDone)
-		gotils.CheckFatal(err)
-
-		p.StatNumCommandsError = prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Name: "commands_num_error",
-				Help: "num completed - error"})
-		err = prometheus.Register(p.StatNumCommandsError)
-		gotils.CheckFatal(err)
-
-		p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
-			Name: "commands_latency",
-			Help: "commands latency stat",
-		})
-		err = prometheus.Register(p.StatCommandLatency)
-		gotils.CheckFatal(err)
-
-		// run the metrics server:
-		go metricsServer(p, *flag_metrics_address)
-	}
+	setupPromMetrics(p, *flag_metrics_address)
 
 	fmt.Fprintf(logger, fmt.Sprintln("running as master"))
 	p.Run()
