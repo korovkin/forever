@@ -233,7 +233,7 @@ func metricsServer(p *Forever, serverAddress string) {
 
 	err := http.ListenAndServe(serverAddress, nil)
 	if err != nil {
-		log.Println("WARNING: failed to start the metrics server on:", serverAddress, err.Error)
+		log.Println("WARNING: failed to start the metrics server on:", serverAddress, err.Error())
 	}
 }
 
@@ -296,11 +296,9 @@ func main() {
 	p.jobs = *flag_jobs
 	p.logger = logger
 	p.worker = limiter.NewConcurrencyLimiter(p.jobs)
-
 	defer p.Close()
 
 	setupPromMetrics(p, *flag_metrics_address)
-
-	fmt.Fprintf(logger, fmt.Sprintln("running as master"))
+	fmt.Fprintf(logger, fmt.Sprintln("main"))
 	p.Run()
 }
