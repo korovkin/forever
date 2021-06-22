@@ -27,6 +27,7 @@ import (
 )
 
 type logger struct {
+	prevPrint     time.Time
 	commandNum    int
 	iteration     int
 	isError       bool
@@ -62,9 +63,7 @@ func (l *logger) Write(p []byte) (int, error) {
 	for {
 		line, err := buf.ReadBytes('\n')
 		if len(line) > 1 {
-			now := time.Now().Format("15:01:02")
 			s := string(line)
-			ts := time.Since(loggerStartTime).String()
 			e := "I"
 			if l.isError {
 				e = "E"
@@ -72,15 +71,25 @@ func (l *logger) Write(p []byte) (int, error) {
 
 			{
 				loggerMutex.Lock()
+				dt := time.Since(l.prevPrint)
+				now := time.Now().Format("15:01:02")
+
 				if l.print {
 					ct.ChangeColor(loggerColors[l.commandNumber%len(loggerColors)], false, ct.None, false)
-					fmt.Printf("[l:%03d-%04d: %-14s %s %s] ", l.commandNumber, l.iteration, ts, now, e)
+					fmt.Printf("[cmd:%03d-%04d: %s %5dms %s] ",
+						l.commandNumber,
+						l.iteration,
+						now,
+						dt.Milliseconds(),
+						e)
+
 					ct.ResetColor()
 					fmt.Print(s)
 				}
 				if l.buf != nil {
 					l.buf.Write([]byte(s))
 				}
+
 				loggerMutex.Unlock()
 			}
 
@@ -99,6 +108,7 @@ func (l *logger) Write(p []byte) (int, error) {
 
 func newLogger(commandNum int, collectLines bool) *logger {
 	l := &logger{commandNum: commandNum, iteration: 0, buf: nil}
+	l.prevPrint = time.Now()
 	if collectLines {
 		l.buf = &bytes.Buffer{}
 	}
@@ -107,7 +117,8 @@ func newLogger(commandNum int, collectLines bool) *logger {
 }
 
 func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int) error {
-	p.StatNumCommandsStart.Inc()
+	p.StatNumCommandsStart.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Inc()
+
 	T_START := time.Now()
 	var err error
 	loggerOut := newLogger(commandNumber, true)
@@ -129,11 +140,11 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 				"dt:", dt.String()))
 
 		if err == nil {
-			p.StatNumCommandsDone.Inc()
+			p.StatNumCommandsDone.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Inc()
 		} else {
-			p.StatNumCommandsError.Inc()
+			p.StatNumCommandsError.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Inc()
 		}
-		p.StatCommandLatency.Observe(dt.Seconds())
+		p.StatCommandLatency.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Observe(dt.Seconds())
 	}()
 
 	// execute locally:
@@ -178,10 +189,10 @@ type Forever struct {
 	worker *limiter.ConcurrencyLimiter
 
 	// stats:
-	StatNumCommandsStart prometheus.Counter
-	StatNumCommandsDone  prometheus.Counter
-	StatNumCommandsError prometheus.Counter
-	StatCommandLatency   prometheus.Summary
+	StatNumCommandsStart *prometheus.CounterVec
+	StatNumCommandsDone  *prometheus.CounterVec
+	StatNumCommandsError *prometheus.CounterVec
+	StatCommandLatency   *prometheus.SummaryVec
 }
 
 func (p *Forever) Close() {
@@ -238,31 +249,35 @@ func metricsServer(p *Forever, serverAddress string) {
 }
 
 func setupPromMetrics(p *Forever, metricsAddress string) {
-	p.StatNumCommandsStart = prometheus.NewCounter(
+	labels := []string{"name", "arg"}
+
+	p.StatNumCommandsStart = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "commands_num_start",
-			Help: "num started"})
+			Help: "num started"},
+		labels)
 	err := prometheus.Register(p.StatNumCommandsStart)
 	gotils.CheckFatal(err)
 
-	p.StatNumCommandsDone = prometheus.NewCounter(
+	p.StatNumCommandsDone = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "commands_num_done",
-			Help: "num completed - ok"})
+			Help: "num completed - ok"}, labels)
 	err = prometheus.Register(p.StatNumCommandsDone)
 	gotils.CheckFatal(err)
 
-	p.StatNumCommandsError = prometheus.NewCounter(
+	p.StatNumCommandsError = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "commands_num_error",
-			Help: "num completed - error"})
+			Help: "num completed - error"}, labels)
 	err = prometheus.Register(p.StatNumCommandsError)
 	gotils.CheckFatal(err)
 
-	p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
-		Name: "commands_latency",
-		Help: "commands latency stat",
-	})
+	p.StatCommandLatency = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name: "commands_latency",
+			Help: "commands latency stat",
+		}, labels)
 	err = prometheus.Register(p.StatCommandLatency)
 	gotils.CheckFatal(err)
 
