@@ -69,11 +69,14 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 			if l.IsError {
 				e = "E"
 			}
+
 			{
 				loggerMutex.Lock()
 				dt := time.Since(l.PrevPrint)
-				now := time.Now().Local().Format("15:04:05")
+				now := time.Now()
 				name := l.CommandConfig.Name
+				l.PrevPrint = now
+
 				if strings.TrimSpace(name) == "" {
 					name = fmt.Sprintf("%10d", l.CommandNum)
 				} else {
@@ -87,7 +90,7 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 						name,
 						l.CommandNum,
 						l.Iteration,
-						now,
+						now.Local().Format("15:04:05"),
 						dt.Milliseconds(),
 						e)
 
