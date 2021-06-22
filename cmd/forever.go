@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	// "context"
+	// "runtime/debug"
 
 	ct "github.com/daviddengcn/go-colortext"
 
@@ -27,11 +27,11 @@ import (
 )
 
 type logger struct {
-	ticket     int
-	isError    bool
-	buf        *bytes.Buffer
-	print      bool
-	lineNumber int
+	ticket        int
+	isError       bool
+	buf           *bytes.Buffer
+	print         bool
+	commandNumber int
 }
 
 var (
@@ -73,7 +73,7 @@ func (l *logger) Write(p []byte) (int, error) {
 				loggerMutex.Lock()
 				if l.print {
 					ct.ChangeColor(loggerColors[l.ticket%len(loggerColors)], false, ct.None, false)
-					fmt.Printf("[l:%03d: %-14s %s %03d %s] ", l.lineNumber, ts, now, l.ticket, e)
+					fmt.Printf("[l:%03d: %-14s %s %03d %s] ", l.commandNumber, ts, now, l.ticket, e)
 					ct.ResetColor()
 					fmt.Print(s)
 				}
@@ -105,33 +105,16 @@ func newLogger(ticket int, collectLines bool) *logger {
 	return l
 }
 
-func CheckFatal(e error) error {
-	if e != nil {
-		debug.PrintStack()
-		log.Println("CHECK: ERROR:", e)
-		panic(e)
-	}
-	return e
-}
-
-func CheckNotFatal(e error) error {
-	if e != nil {
-		debug.PrintStack()
-		log.Println("CHECK: ERROR:", e, e.Error())
-	}
-	return e
-}
-
-func executeCommand(p *Forever, ticket int, cmdLine string, lineNumber int) error {
+func executeCommand(p *Forever, ticket int, cmdLine string, commandNumber int) error {
 	p.StatNumCommandsStart.Inc()
 	T_START := time.Now()
 	var err error
 	loggerOut := newLogger(ticket, true)
 	loggerOut.isError = false
-	loggerOut.lineNumber = lineNumber
+	loggerOut.commandNumber = commandNumber
 	loggerErr := newLogger(ticket, true)
 	loggerErr.isError = true
-	loggerErr.lineNumber = lineNumber
+	loggerErr.commandNumber = commandNumber
 
 	defer func() {
 		dt := time.Since(T_START)
@@ -158,13 +141,13 @@ func executeCommand(p *Forever, ticket int, cmdLine string, lineNumber int) erro
 
 	fmt.Fprintf(loggerOut, fmt.Sprintln(
 		"=> start",
-		"lineNumber:", lineNumber,
+		"cmdNumber:", commandNumber,
 		"cmd: ", cmdLine))
 
 	loggerOut.print = *flag_verbose
-	loggerOut.lineNumber = lineNumber
+	loggerOut.commandNumber = commandNumber
 	loggerErr.print = *flag_verbose
-	loggerErr.lineNumber = lineNumber
+	loggerErr.commandNumber = commandNumber
 
 	err = cmd.Start()
 	gotils.CheckFatal(err)
@@ -214,11 +197,11 @@ func mainMaster(p *Forever) {
 	var err error
 
 	log.SetFlags(log.Lmicroseconds | log.Ldate | log.Lshortfile)
-	CheckFatal(err)
+	gotils.CheckFatal(err)
 
 	r := bufio.NewReaderSize(os.Stdin, 1*1024*1024)
 	fmt.Fprintf(p.logger, "reading from stdin...\n")
-	lineNum := 0
+	commandNum := 0
 	for {
 		line, err := r.ReadString('\n')
 		if err == io.EOF {
@@ -226,12 +209,15 @@ func mainMaster(p *Forever) {
 		}
 		line = strings.TrimSpace(line)
 
-		lineNumber := lineNum
+		commandNumber := commandNum
 		p.worker.ExecuteWithTicket(func(ticket int) {
-			executeCommand(p, ticket, line, lineNumber)
+
+			// TODO:: restart when fails:
+			executeCommand(p, ticket, line, commandNumber)
+
 		})
 
-		lineNum += 1
+		commandNum += 1
 	}
 }
 
@@ -296,23 +282,23 @@ func main() {
 	p.StatNumCommandsStart = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "commands_num_start",
-			Help: "num received"})
+			Help: "num started"})
 	err := prometheus.Register(p.StatNumCommandsStart)
-	CheckFatal(err)
+	gotils.CheckFatal(err)
 
 	p.StatNumCommandsDone = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "commands_num_done",
-			Help: "num received"})
+			Help: "num completed"})
 	err = prometheus.Register(p.StatNumCommandsDone)
-	CheckFatal(err)
+	gotils.CheckFatal(err)
 
 	p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
 		Name: "commands_latency",
 		Help: "commands latency stat",
 	})
 	err = prometheus.Register(p.StatCommandLatency)
-	CheckFatal(err)
+	gotils.CheckFatal(err)
 
 	// run the metrics server:
 	go metricsServer(p, *flag_slave_metrics_address)
