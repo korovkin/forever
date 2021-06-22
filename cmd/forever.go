@@ -172,10 +172,6 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	return err
 }
 
-type Slave struct {
-	Address string
-}
-
 type Forever struct {
 	jobs   int
 	logger *logger
@@ -192,7 +188,7 @@ func (p *Forever) Close() {
 	p.worker.Wait()
 }
 
-func run(p *Forever) {
+func (p *Forever) Run() {
 	var err error
 
 	log.SetFlags(log.Lmicroseconds | log.Ldate | log.Lshortfile)
@@ -305,5 +301,5 @@ func main() {
 	}
 
 	fmt.Fprintf(logger, fmt.Sprintln("running as master"))
-	run(p)
+	p.Run()
 }
