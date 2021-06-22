@@ -33,7 +33,8 @@ type ForeverLogger struct {
 	IsErrorStream bool                 `json:"err"`
 	IsPrint       bool                 `json:"is_print"`
 
-	buf *bytes.Buffer
+	buf   *bytes.Buffer
+	lines *prometheus.CounterVec
 }
 
 var (
@@ -103,6 +104,10 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 			}
 
 			wrote += len(line)
+			if l.lines != nil {
+				l.lines.WithLabelValues("cmd_name", l.CommandConfig.Name).Inc()
+				l.lines.WithLabelValues("cmd_name", "all").Inc()
+			}
 		}
 		if err != nil {
 			break
@@ -132,9 +137,12 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	loggerOut := newLogger(commandNumber, true)
 	loggerOut.IsErrorStream = false
 	loggerOut.Iteration = iteration
+	loggerOut.lines = p.StatLines
+
 	loggerErr := newLogger(commandNumber, true)
 	loggerErr.IsErrorStream = true
 	loggerErr.Iteration = iteration
+	loggerErr.lines = p.StatLines
 
 	commandConfig := &ForeverCommandConfig{}
 	{
@@ -226,6 +234,7 @@ type Forever struct {
 	StatNumCommandsDone  *prometheus.CounterVec `json:"-"`
 	StatNumCommandsError *prometheus.CounterVec `json:"-"`
 	StatCommandLatency   *prometheus.SummaryVec `json:"-"`
+	StatLines            *prometheus.CounterVec `json:"-"`
 }
 
 func (p *Forever) Close() {
@@ -307,6 +316,14 @@ func setupPromMetrics(p *Forever, metricsAddress string) {
 			Help: "num started"},
 		labels)
 	err := prometheus.Register(p.StatNumCommandsStart)
+	gotils.CheckFatal(err)
+
+	p.StatLines = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lines",
+			Help: "num of lines logged"},
+		labels)
+	err = prometheus.Register(p.StatLines)
 	gotils.CheckFatal(err)
 
 	p.StatNumCommandsDone = prometheus.NewCounterVec(
