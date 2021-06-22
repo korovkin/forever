@@ -40,7 +40,6 @@ type ForeverLogger struct {
 
 var (
 	loggerMutex     = new(sync.Mutex)
-	loggerIndex     = int(0)
 	loggerStartTime = time.Now()
 	loggerHostname  = ""
 
@@ -73,7 +72,7 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 			{
 				loggerMutex.Lock()
 				dt := time.Since(l.PrevPrint)
-				now := time.Now().Format("15:01:02")
+				now := time.Now().Local().Format("15:04:05")
 				name := l.CommandConfig.Name
 				if strings.TrimSpace(name) == "" {
 					name = fmt.Sprintf("%10d", l.CommandNum)
