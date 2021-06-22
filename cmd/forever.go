@@ -27,7 +27,8 @@ import (
 )
 
 type logger struct {
-	ticket        int
+	commandNum    int
+	iteration     int
 	isError       bool
 	buf           *bytes.Buffer
 	print         bool
@@ -72,8 +73,8 @@ func (l *logger) Write(p []byte) (int, error) {
 			{
 				loggerMutex.Lock()
 				if l.print {
-					ct.ChangeColor(loggerColors[l.ticket%len(loggerColors)], false, ct.None, false)
-					fmt.Printf("[l:%03d: %-14s %s %03d %s] ", l.commandNumber, ts, now, l.ticket, e)
+					ct.ChangeColor(loggerColors[l.commandNumber%len(loggerColors)], false, ct.None, false)
+					fmt.Printf("[l:%03d-%04d: %-14s %s %s] ", l.commandNumber, l.iteration, ts, now, e)
 					ct.ResetColor()
 					fmt.Print(s)
 				}
@@ -96,8 +97,8 @@ func (l *logger) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newLogger(ticket int, collectLines bool) *logger {
-	l := &logger{ticket: ticket, buf: nil}
+func newLogger(commandNum int, collectLines bool) *logger {
+	l := &logger{commandNum: commandNum, iteration: 0, buf: nil}
 	if collectLines {
 		l.buf = &bytes.Buffer{}
 	}
@@ -105,25 +106,26 @@ func newLogger(ticket int, collectLines bool) *logger {
 	return l
 }
 
-func executeCommand(p *Forever, ticket int, cmdLine string, commandNumber int) error {
+func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int) error {
 	p.StatNumCommandsStart.Inc()
 	T_START := time.Now()
 	var err error
-	loggerOut := newLogger(ticket, true)
+	loggerOut := newLogger(commandNumber, true)
 	loggerOut.isError = false
-	loggerOut.commandNumber = commandNumber
-	loggerErr := newLogger(ticket, true)
+	loggerOut.iteration = iteration
+	loggerErr := newLogger(commandNumber, true)
 	loggerErr.isError = true
-	loggerErr.commandNumber = commandNumber
+	loggerErr.iteration = iteration
 
 	defer func() {
 		dt := time.Since(T_START)
 		fmt.Fprintf(
 			loggerOut,
 			fmt.Sprintln(
-				"execute:",
+				"=> done:",
+				"iter:", iteration,
 				"cmdNum:", commandNumber,
-				"cmd:", cmdLine,
+				"cmd:", commandLine,
 				"dt:", dt.String()))
 
 		if err == nil {
@@ -131,25 +133,25 @@ func executeCommand(p *Forever, ticket int, cmdLine string, commandNumber int) e
 		} else {
 			p.StatNumCommandsError.Inc()
 		}
-
 		p.StatCommandLatency.Observe(dt.Seconds())
 	}()
 
 	// execute locally:
-	cs := []string{"/bin/bash", "-c", cmdLine}
+	cs := []string{"/bin/bash", "-c", commandLine}
 	cmd := exec.Command(cs[0], cs[1:]...)
 	cmd.Stdin = nil
 	cmd.Stdout = loggerOut
 	cmd.Stderr = loggerErr
 	cmd.Env = append(
 		os.Environ(),
-		fmt.Sprintf("PARALLEL_TICKER=%d", ticket),
+		fmt.Sprintf("FOREVER_ITERATION=%d", iteration),
 	)
 
 	fmt.Fprintf(loggerOut, fmt.Sprintln(
 		"=> start",
-		"cmdNumber:", commandNumber,
-		"cmd: ", cmdLine))
+		"iter:", iteration,
+		"cmdNum:", commandNumber,
+		"cmd: ", commandLine))
 
 	loggerOut.print = *flag_verbose
 	loggerOut.commandNumber = commandNumber
@@ -166,17 +168,6 @@ func executeCommand(p *Forever, ticket int, cmdLine string, commandNumber int) e
 	if err == nil {
 		err = cmd.Wait()
 	}
-
-	loggerOut.print = true
-	loggerErr.print = true
-
-	// output.Tags = map[string]string{"hostname": loggerHostname}
-	// if loggerOut.buf != nil {
-	// 	output.Stdout = string(loggerOut.buf.Bytes())
-	// }
-	// if loggerErr.buf != nil {
-	// 	output.Stderr = string(loggerErr.buf.Bytes())
-	// }
 
 	return err
 }
@@ -201,7 +192,7 @@ func (p *Forever) Close() {
 	p.worker.Wait()
 }
 
-func mainMaster(p *Forever) {
+func run(p *Forever) {
 	var err error
 
 	log.SetFlags(log.Lmicroseconds | log.Ldate | log.Lshortfile)
@@ -219,10 +210,9 @@ func mainMaster(p *Forever) {
 
 		commandNumber := commandNum
 		p.worker.ExecuteWithTicket(func(ticket int) {
-
-			// TODO:: restart when fails:
-			executeCommand(p, ticket, line, commandNumber)
-
+			for iteration := 0; true; iteration += 1 {
+				executeCommand(p, iteration, line, commandNumber)
+			}
 		})
 
 		commandNum += 1
@@ -263,7 +253,7 @@ func main() {
 		100,
 		"num of concurrent jobs")
 
-	flag_slave_metrics_address := flag.String(
+	flag_metrics_address := flag.String(
 		"metrics_address",
 		"localhost:9105",
 		"prometheus metrics address")
@@ -281,37 +271,39 @@ func main() {
 	defer p.Close()
 
 	// stats:
-	p.StatNumCommandsStart = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "commands_num_start",
-			Help: "num started"})
-	err := prometheus.Register(p.StatNumCommandsStart)
-	gotils.CheckFatal(err)
+	{
+		p.StatNumCommandsStart = prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "commands_num_start",
+				Help: "num started"})
+		err := prometheus.Register(p.StatNumCommandsStart)
+		gotils.CheckFatal(err)
 
-	p.StatNumCommandsDone = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "commands_num_done",
-			Help: "num completed - ok"})
-	err = prometheus.Register(p.StatNumCommandsDone)
-	gotils.CheckFatal(err)
+		p.StatNumCommandsDone = prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "commands_num_done",
+				Help: "num completed - ok"})
+		err = prometheus.Register(p.StatNumCommandsDone)
+		gotils.CheckFatal(err)
 
-	p.StatNumCommandsError = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "commands_num_error",
-			Help: "num completed - error"})
-	err = prometheus.Register(p.StatNumCommandsError)
-	gotils.CheckFatal(err)
+		p.StatNumCommandsError = prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "commands_num_error",
+				Help: "num completed - error"})
+		err = prometheus.Register(p.StatNumCommandsError)
+		gotils.CheckFatal(err)
 
-	p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
-		Name: "commands_latency",
-		Help: "commands latency stat",
-	})
-	err = prometheus.Register(p.StatCommandLatency)
-	gotils.CheckFatal(err)
+		p.StatCommandLatency = prometheus.NewSummary(prometheus.SummaryOpts{
+			Name: "commands_latency",
+			Help: "commands latency stat",
+		})
+		err = prometheus.Register(p.StatCommandLatency)
+		gotils.CheckFatal(err)
 
-	// run the metrics server:
-	go metricsServer(p, *flag_slave_metrics_address)
+		// run the metrics server:
+		go metricsServer(p, *flag_metrics_address)
+	}
 
-	fmt.Fprintf(logger, "running as master\n")
-	mainMaster(p)
+	fmt.Fprintf(logger, fmt.Sprintln("running as master"))
+	run(p)
 }
