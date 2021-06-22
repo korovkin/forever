@@ -14,9 +14,6 @@ import (
 	"sync"
 	"time"
 
-	// "context"
-	// "runtime/debug"
-
 	ct "github.com/daviddengcn/go-colortext"
 
 	"github.com/korovkin/forever"
@@ -285,11 +282,13 @@ func metricsServer(p *Forever, serverAddress string) {
 
 			io.WriteString(c,
 				gotils.ToJSONString(map[string]interface{}{
-					"now":      now,
-					"now_unix": now.Unix(),
-					"address":  serverAddress,
-					"forever":  p,
-					"starts":   starts,
+					"now":            now,
+					"now_unix":       now.Unix(),
+					"address":        serverAddress,
+					"forever":        p,
+					"starts":         starts,
+					"version_string": forever.VersionString(),
+					"version":        forever.VERSION_NUMBER,
 				}))
 		})
 
