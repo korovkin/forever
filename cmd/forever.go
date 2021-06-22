@@ -19,6 +19,7 @@ import (
 
 	ct "github.com/daviddengcn/go-colortext"
 
+	"github.com/korovkin/forever"
 	"github.com/korovkin/gotils"
 	"github.com/korovkin/limiter"
 
@@ -32,7 +33,7 @@ type ForeverLogger struct {
 	CommandNum    int                  `json:"cmd_num"`
 	CommandConfig ForeverCommandConfig `json:"cmd_config"`
 	Iteration     int                  `json:"cmd_iteration"`
-	IsError       bool                 `json:"err"`
+	IsErrorStream bool                 `json:"err"`
 	IsPrint       bool                 `json:"is_print"`
 
 	buf *bytes.Buffer
@@ -66,7 +67,7 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 		if len(line) > 1 {
 			s := string(line)
 			e := "I"
-			if l.IsError {
+			if l.IsErrorStream {
 				e = "E"
 			}
 
@@ -132,10 +133,10 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	T_START := time.Now()
 	var err error
 	loggerOut := newLogger(commandNumber, true)
-	loggerOut.IsError = false
+	loggerOut.IsErrorStream = false
 	loggerOut.Iteration = iteration
 	loggerErr := newLogger(commandNumber, true)
-	loggerErr.IsError = true
+	loggerErr.IsErrorStream = true
 	loggerErr.Iteration = iteration
 
 	commandConfig := &ForeverCommandConfig{}
@@ -220,6 +221,7 @@ type ForeverCommandConfig struct {
 
 type Forever struct {
 	ConcurrentCommands int                         `json:"concurrent_cmds"`
+	IsRepeatForever    bool                        `json:"is_repeat"`
 	worker             *limiter.ConcurrencyLimiter `json:"-"`
 
 	// stats:
@@ -253,6 +255,10 @@ func (p *Forever) Run() {
 		p.worker.ExecuteWithTicket(func(ticket int) {
 			for iteration := 0; true; iteration += 1 {
 				executeCommand(p, iteration, line, commandNumber)
+				if !p.IsRepeatForever {
+					break
+				}
+				log.Println("repeat enable - restarting command:", line)
 			}
 		})
 
@@ -331,28 +337,46 @@ func setupPromMetrics(p *Forever, metricsAddress string) {
 }
 
 func main() {
+	log.SetFlags(log.Ltime | log.Lshortfile | log.Lmicroseconds | log.Ldate)
+
 	T_START := time.Now()
 	defer func() {
 		log.Println("all done: dt: " + time.Since(T_START).String() + "\n")
 	}()
 
-	flag_jobs := flag.Int(
+	flag_version := flag.Bool(
+		"version",
+		false,
+		"print the version number")
+
+	flag_concurrency := flag.Int(
 		"j",
 		100,
-		"num of concurrent jobs")
+		"num of concurrent processes")
 
 	flag_metrics_address := flag.String(
 		"metrics_address",
-		"localhost:9105",
+		"0.0.0.0:9105",
 		"prometheus metrics address")
+
+	flag_is_repeat := flag.Bool(
+		"repeat",
+		true,
+		"repeat each process forever")
 
 	loggerHostname, _ = os.Hostname()
 
 	flag.Parse()
-	log.Println("concurrency limit: %d", *flag_jobs)
+	log.Println("concurrency:", *flag_concurrency)
+
+	if *flag_version {
+		log.Println(forever.VersionString())
+		os.Exit(0)
+	}
 
 	p := &Forever{}
-	p.ConcurrentCommands = *flag_jobs
+	p.ConcurrentCommands = *flag_concurrency
+	p.IsRepeatForever = *flag_is_repeat
 	p.worker = limiter.NewConcurrencyLimiter(p.ConcurrentCommands)
 	defer p.Close()
 
