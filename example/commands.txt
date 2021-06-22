@@ -1,3 +1,4 @@
-date;   sleep 2;
-ls;     sleep 4;
-date;   sleep 6;
+date;       sleep 2;  #FOREVER:{"name":"date"}
+ls;         sleep 4;  #FOREVER:{"name":"ls"}
+date;       sleep 6;  #FOREVER:{"name":"date2"}
+ifconfig;   sleep 60; #FOREVER:{}

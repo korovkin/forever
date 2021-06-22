@@ -24,16 +24,18 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 )
 
-type logger struct {
-	prevPrint     time.Time
-	commandNum    int
-	iteration     int
-	isError       bool
-	buf           *bytes.Buffer
-	print         bool
-	commandNumber int
+type ForeverLogger struct {
+	PrevPrint     time.Time            `json:"prev_print"`
+	CommandNum    int                  `json:"cmd_num"`
+	CommandConfig ForeverCommandConfig `json:"cmd_config"`
+	Iteration     int                  `json:"cmd_iteration"`
+	IsError       bool                 `json:"err"`
+	IsPrint       bool                 `json:"is_print"`
+
+	buf *bytes.Buffer
 }
 
 var (
@@ -57,7 +59,7 @@ var loggerColors = []ct.Color{
 	ct.Red,
 }
 
-func (l *logger) Write(p []byte) (int, error) {
+func (l *ForeverLogger) Write(p []byte) (int, error) {
 	buf := bytes.NewBuffer(p)
 	wrote := 0
 	for {
@@ -65,20 +67,27 @@ func (l *logger) Write(p []byte) (int, error) {
 		if len(line) > 1 {
 			s := string(line)
 			e := "I"
-			if l.isError {
+			if l.IsError {
 				e = "E"
 			}
-
 			{
 				loggerMutex.Lock()
-				dt := time.Since(l.prevPrint)
+				dt := time.Since(l.PrevPrint)
 				now := time.Now().Format("15:01:02")
+				name := l.CommandConfig.Name
+				if strings.TrimSpace(name) == "" {
+					name = fmt.Sprintf("%10d", l.CommandNum)
+				} else {
+					name = fmt.Sprintf("%-10s", name)
+				}
 
-				if l.print {
-					ct.ChangeColor(loggerColors[l.commandNumber%len(loggerColors)], false, ct.None, false)
-					fmt.Printf("[cmd:%03d-%04d: %s %5dms %s] ",
-						l.commandNumber,
-						l.iteration,
+				if l.IsPrint {
+					ct.ChangeColor(
+						loggerColors[l.CommandNum%len(loggerColors)], false, ct.None, false)
+					fmt.Printf("[%-10s i:%04d-%04d: %s %5dms %s] ",
+						name,
+						l.CommandNum,
+						l.Iteration,
 						now,
 						dt.Milliseconds(),
 						e)
@@ -106,27 +115,49 @@ func (l *logger) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newLogger(commandNum int, collectLines bool) *logger {
-	l := &logger{commandNum: commandNum, iteration: 0, buf: nil}
-	l.prevPrint = time.Now()
+func newLogger(commandNum int, collectLines bool) *ForeverLogger {
+	l := &ForeverLogger{CommandNum: commandNum, Iteration: 0}
+	l.PrevPrint = time.Now()
 	if collectLines {
 		l.buf = &bytes.Buffer{}
 	}
-	l.print = true
+	l.IsPrint = true
 	return l
 }
 
 func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int) error {
-	p.StatNumCommandsStart.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Inc()
 
 	T_START := time.Now()
 	var err error
 	loggerOut := newLogger(commandNumber, true)
-	loggerOut.isError = false
-	loggerOut.iteration = iteration
+	loggerOut.IsError = false
+	loggerOut.Iteration = iteration
 	loggerErr := newLogger(commandNumber, true)
-	loggerErr.isError = true
-	loggerErr.iteration = iteration
+	loggerErr.IsError = true
+	loggerErr.Iteration = iteration
+
+	commandConfig := &ForeverCommandConfig{}
+	{
+		commandLineComp := strings.Split(commandLine, "#FOREVER:")
+		if len(commandLineComp) > 1 {
+			gotils.FromJSONString(commandLineComp[1], commandConfig)
+		}
+		if strings.TrimSpace(commandConfig.Name) == "" {
+			commandConfig.Name = fmt.Sprintf("%d", commandNumber)
+		} else {
+			commandConfig.Name = fmt.Sprintf("%s", commandConfig.Name)
+		}
+		loggerOut.CommandConfig = *commandConfig
+		loggerErr.CommandConfig = *commandConfig
+	}
+
+	labels := map[string]string{
+		"name": "cmd_name",
+		"arg":  commandConfig.Name,
+	}
+
+	p.StatNumCommandsStart.With(labels).Inc()
+	p.StatNumCommandsStart.WithLabelValues("cmd_name", "all").Inc()
 
 	defer func() {
 		dt := time.Since(T_START)
@@ -140,14 +171,13 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 				"dt:", dt.String()))
 
 		if err == nil {
-			p.StatNumCommandsDone.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Inc()
+			p.StatNumCommandsDone.With(labels).Inc()
 		} else {
-			p.StatNumCommandsError.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Inc()
+			p.StatNumCommandsError.With(labels).Inc()
 		}
-		p.StatCommandLatency.WithLabelValues("cmd_num", fmt.Sprint(commandNumber)).Observe(dt.Seconds())
+		p.StatCommandLatency.With(labels).Observe(dt.Seconds())
 	}()
 
-	// execute locally:
 	cs := []string{"/bin/bash", "-c", commandLine}
 	cmd := exec.Command(cs[0], cs[1:]...)
 	cmd.Stdin = nil
@@ -159,15 +189,14 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	)
 
 	fmt.Fprintf(loggerOut, fmt.Sprintln(
-		"=> start",
 		"iter:", iteration,
 		"cmdNum:", commandNumber,
 		"cmd: ", commandLine))
 
-	loggerOut.print = *flag_verbose
-	loggerOut.commandNumber = commandNumber
-	loggerErr.print = *flag_verbose
-	loggerErr.commandNumber = commandNumber
+	loggerOut.IsPrint = *flag_verbose
+	loggerOut.CommandNum = commandNumber
+	loggerErr.IsPrint = *flag_verbose
+	loggerErr.CommandNum = commandNumber
 
 	err = cmd.Start()
 	gotils.CheckFatal(err)
@@ -183,16 +212,19 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	return err
 }
 
+type ForeverCommandConfig struct {
+	Name string `json:"name"`
+}
+
 type Forever struct {
-	jobs   int
-	logger *logger
-	worker *limiter.ConcurrencyLimiter
+	ConcurrentCommands int                         `json:"concurrent_cmds"`
+	worker             *limiter.ConcurrencyLimiter `json:"-"`
 
 	// stats:
-	StatNumCommandsStart *prometheus.CounterVec
-	StatNumCommandsDone  *prometheus.CounterVec
-	StatNumCommandsError *prometheus.CounterVec
-	StatCommandLatency   *prometheus.SummaryVec
+	StatNumCommandsStart *prometheus.CounterVec `json:"-"`
+	StatNumCommandsDone  *prometheus.CounterVec `json:"-"`
+	StatNumCommandsError *prometheus.CounterVec `json:"-"`
+	StatCommandLatency   *prometheus.SummaryVec `json:"-"`
 }
 
 func (p *Forever) Close() {
@@ -206,7 +238,7 @@ func (p *Forever) Run() {
 	gotils.CheckFatal(err)
 
 	r := bufio.NewReaderSize(os.Stdin, 1*1024*1024)
-	fmt.Fprintf(p.logger, "reading from stdin...\n")
+	log.Println("reading from stdin...\n")
 	commandNum := 0
 	for {
 		line, err := r.ReadString('\n')
@@ -234,12 +266,23 @@ func metricsServer(p *Forever, serverAddress string) {
 
 	http.HandleFunc("/",
 		func(c http.ResponseWriter, req *http.Request) {
+			now := time.Now()
+
+			starts := float64(0)
+			var m = &dto.Metric{}
+			if err := p.StatNumCommandsStart.WithLabelValues("cmd_name", "all").Write(m); err != nil {
+			} else {
+				starts = m.Counter.GetValue()
+			}
+
 			io.WriteString(c,
-				fmt.Sprintf(
-					"go  time: %d slave_address: %s jobs: %d",
-					time.Now().Unix(),
-					serverAddress,
-					p.jobs))
+				gotils.ToJSONString(map[string]interface{}{
+					"now":      now,
+					"now_unix": now.Unix(),
+					"address":  serverAddress,
+					"forever":  p,
+					"starts":   starts,
+				}))
 		})
 
 	err := http.ListenAndServe(serverAddress, nil)
@@ -287,9 +330,8 @@ func setupPromMetrics(p *Forever, metricsAddress string) {
 
 func main() {
 	T_START := time.Now()
-	logger := newLogger(0, false)
 	defer func() {
-		fmt.Fprintf(logger, "all done: dt: "+time.Since(T_START).String()+"\n")
+		log.Println("all done: dt: " + time.Since(T_START).String() + "\n")
 	}()
 
 	flag_jobs := flag.Int(
@@ -305,15 +347,13 @@ func main() {
 	loggerHostname, _ = os.Hostname()
 
 	flag.Parse()
-	fmt.Fprintf(logger, "concurrency limit: %d", *flag_jobs)
+	log.Println("concurrency limit: %d", *flag_jobs)
 
 	p := &Forever{}
-	p.jobs = *flag_jobs
-	p.logger = logger
-	p.worker = limiter.NewConcurrencyLimiter(p.jobs)
+	p.ConcurrentCommands = *flag_jobs
+	p.worker = limiter.NewConcurrencyLimiter(p.ConcurrentCommands)
 	defer p.Close()
 
 	setupPromMetrics(p, *flag_metrics_address)
-	fmt.Fprintf(logger, fmt.Sprintln("main"))
 	p.Run()
 }
