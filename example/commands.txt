@@ -1,4 +1,5 @@
-date;       sleep 2;  #FOREVER:{"name":"date"}
-ls;         sleep 4;  #FOREVER:{"name":"ls"}
-date;       sleep 6;  #FOREVER:{"name":"date2"}
-ifconfig;   sleep 60; #FOREVER:{}
+date;       sleep 2;        #FOREVER:{"name":"date"}
+ls;         sleep 4;        #FOREVER:{"name":"ls"}
+date;       sleep 6;        #FOREVER:{"name":"date2"}
+ifconfig;   sleep 60;       #FOREVER:{}
+ping -c 10 www.google.com ; #FOREVER:{}
