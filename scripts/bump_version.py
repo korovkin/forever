@@ -5,7 +5,7 @@ import sys
 import re
 
 lines = open("version.go", "r").read()
-current_version = re.match('''.*const VERSION_NUMBER = "([^"]*)".*''', lines, re.DOTALL).groups()
+current_version = re.match('''.*var VERSION_NUMBER = "([^"]*)".*''', lines, re.DOTALL).groups()
 prev_string = current_version[0]
 current_version = current_version[0].split(".")
 current_version[-1] = "%03d" % (int(current_version[-1])+1)
