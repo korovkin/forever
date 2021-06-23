@@ -13,6 +13,6 @@ test: build
 	cat example/commands.txt  | ./forever
 version:
 	python ./scripts/bump_version.py
-	git commit --message="version `cat _version.txt`" version.go
+	git commit --message="version `cat _version.txt`" version.go _version.txt
 
 
