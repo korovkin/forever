@@ -4,4 +4,5 @@
 4. add more configs to ###FOREVER:{}
 5. catch all the signals and properly stop the processes (send a signal before killing them)
 6. add APIs: 
-  1. kill/restart a cmd
+  1. kill/restart a cmd without restarting the parent process.
+  2. send custom signals to the child processes
