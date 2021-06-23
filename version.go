@@ -2,7 +2,7 @@ package forever
 
 import "fmt"
 
-const VERSION_NUMBER = "0000.0001.044"
+const VERSION_NUMBER = "0000.0001.045"
 
 var VERSION_GIT_HASH string = "?"
 var VERSION_DATE string = "?"
