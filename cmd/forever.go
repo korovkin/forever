@@ -23,6 +23,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
+	glog "github.com/subchen/go-log"
+	"github.com/subchen/go-log/writers"
 )
 
 type ForeverLogger struct {
@@ -85,21 +87,21 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 				if l.IsPrint {
 					ct.ChangeColor(
 						loggerColors[l.CommandNum%len(loggerColors)], false, ct.None, false)
-					fmt.Printf("[%-10s i:%04d-%04d: %s %5dms %s] ",
+					line := fmt.Sprintf("[%-10s i:%04d-%04d: %s %5dms %s] ",
 						name,
 						l.CommandNum,
 						l.Iteration,
 						now.Local().Format("15:04:05"),
 						dt.Milliseconds(),
 						e)
-
+					fmt.Print(line)
 					ct.ResetColor()
 					fmt.Print(s)
+					glog.Default.Print(strings.TrimSpace(line + s))
 				}
 				if l.buf != nil {
 					l.buf.Write([]byte(s))
 				}
-
 				loggerMutex.Unlock()
 			}
 
@@ -375,6 +377,11 @@ func main() {
 		"0.0.0.0:9105",
 		"prometheus metrics address")
 
+	flag_log_prefix := flag.String(
+		"log_prefix",
+		"_log.log",
+		"rotating log files")
+
 	flag_is_repeat := flag.Bool(
 		"repeat",
 		true,
@@ -384,6 +391,17 @@ func main() {
 
 	flag.Parse()
 	log.Println("concurrency:", *flag_concurrency)
+
+	// configure file logging:
+	if *flag_log_prefix != "" {
+		glog.Default.Level = glog.INFO
+		log.Println("logging to:", *flag_log_prefix, "*")
+		glog.Default.Out = &writers.FixedSizeFileWriter{
+			Name:     *flag_log_prefix,
+			MaxSize:  1 * 1024 * 1024, // 10m
+			MaxCount: 10,
+		}
+	}
 
 	if *flag_version {
 		log.Println(forever.VersionString())
