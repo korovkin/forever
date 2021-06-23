@@ -2,3 +2,6 @@
 2. integrate with Slack/PD webhook for restarts
 3. add a rotating log per process
 4. add more configs to ###FOREVER:{}
+5. catch all the signals and properly stop the processes (send a signal before killing them)
+6. add APIs: 
+  1. kill/restart a cmd
