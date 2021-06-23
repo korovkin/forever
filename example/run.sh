@@ -1,4 +1,4 @@
 #!/bin/bash
 
 # run forever:
-cat commands.txt | ../parallel -j 10
+cat commands.txt | ../forever -j 10

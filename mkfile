@@ -1,10 +1,12 @@
-GO_BUILD_OPTIONS=-ldflags "-X github.com/korovkin/forever.VERSION_DATE=`date '+%Y%m%d_%H%M%S_%s'` -X github.com/korovkin/forever.VERSION_GIT_HASH=`git rev-parse HEAD`" 
+GO_BUILD_OPTIONS=-ldflags "-X github.com/korovkin/forever.VERSION_COMPILE_TIME=`date '+%Y%m%d_%H%M%S_%s'` -X github.com/korovkin/forever.VERSION_GIT_HASH=`git rev-parse HEAD`" 
 
 travis:
 	go build ${GO_BUILD_OPTIONS} -o forever cmd/*.go
+	./forever --version
 
 build: 
 	go build ${GO_BUILD_OPTIONS} -o forever cmd/*.go
+	./forever --version
 
 install:
 	go install -v cmd/*.go
