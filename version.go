@@ -1,6 +1,6 @@
 package forever
 
-const VERSION_NUMBER = "0000.0001.042"
+const VERSION_NUMBER = "0000.0001.043"
 
 var VERSION_GIT_HASH string = "?"
 var VERSION_DATE string = "?"
