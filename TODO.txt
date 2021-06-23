@@ -1,0 +1,4 @@
+1. integrate with linesd: https://github.com/korovkin/linesd
+2. integrate with Slack/PD webhook for restarts
+3. add a rotating log per process
+4. add more configs to ###FOREVER:{}
