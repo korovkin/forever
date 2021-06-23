@@ -267,6 +267,7 @@ func (p *Forever) Run() {
 					break
 				}
 				log.Println("repeat enable - restarting command:", line)
+				glog.Println("repeat enable - restarting command:", line)
 			}
 		})
 
@@ -360,6 +361,7 @@ func main() {
 	T_START := time.Now()
 	defer func() {
 		log.Println("all done: dt: " + time.Since(T_START).String() + "\n")
+		glog.Println("all done: dt: " + time.Since(T_START).String() + "\n")
 	}()
 
 	flag_version := flag.Bool(
