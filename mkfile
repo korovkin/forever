@@ -1,4 +1,4 @@
-GO_BUILD_OPTIONS=-ldflags "-X forever.VERSION_DATE=`date '+%Y-%m-%d_%I:%M:%S%p'` -X forever.VERSION_GIT_HASH=`git rev-parse HEAD`" 
+GO_BUILD_OPTIONS=-ldflags "-X github.com/korovkin/forever.VERSION_DATE=`date '+%Y%m%d_%H%M%S_%s'` -X github.com/korovkin/forever.VERSION_GIT_HASH=`git rev-parse HEAD`" 
 
 travis:
 	go build ${GO_BUILD_OPTIONS} -o forever cmd/*.go
