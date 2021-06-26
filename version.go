@@ -2,7 +2,7 @@ package forever
 
 import "fmt"
 
-var VERSION_NUMBER = "0000.0001.048"
+var VERSION_NUMBER = "0000.0001.049"
 var VERSION_GIT_HASH = ""
 var VERSION_COMPILE_TIME = ""
 
