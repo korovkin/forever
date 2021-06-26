@@ -132,8 +132,11 @@ func newLogger(commandNum int, collectLines bool) *ForeverLogger {
 	return l
 }
 
-func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int) error {
+func quote(s string) string {
+	return "'" + s + "'"
+}
 
+func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int) (*ForeverCommandConfig, error) {
 	T_START := time.Now()
 	var err error
 	loggerOut := newLogger(commandNumber, true)
@@ -201,7 +204,7 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	fmt.Fprintf(loggerOut, fmt.Sprintln(
 		"iter:", iteration,
 		"cmdNum:", commandNumber,
-		"cmd: ", commandLine))
+		"cmd: ", quote(commandLine)))
 
 	loggerOut.IsPrint = *flag_verbose
 	loggerOut.CommandNum = commandNumber
@@ -212,18 +215,24 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	gotils.CheckFatal(err)
 	if err != nil {
 		log.Fatalln("failed to start:", err)
-		return err
+		return commandConfig, err
 	}
 
 	if err == nil {
 		err = cmd.Wait()
 	}
 
-	return err
+	// if !cmd.ProcessState.Success() {
+	log.Println("process exit code:", cmd.ProcessState.ExitCode())
+	// }
+
+	return commandConfig, err
 }
 
 type ForeverCommandConfig struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
+	Repeat  bool   `json:"repeat"`
+	Restart bool   `json:"restart"`
 }
 
 type Forever struct {
@@ -250,7 +259,7 @@ func (p *Forever) Run() {
 	gotils.CheckFatal(err)
 
 	r := bufio.NewReaderSize(os.Stdin, 1*1024*1024)
-	log.Println("reading from stdin...\n")
+	log.Println("reading from stdin...")
 	commandNum := 0
 	for {
 		line, err := r.ReadString('\n')
@@ -262,12 +271,21 @@ func (p *Forever) Run() {
 		commandNumber := commandNum
 		p.worker.ExecuteWithTicket(func(ticket int) {
 			for iteration := 0; true; iteration += 1 {
-				executeCommand(p, iteration, line, commandNumber)
-				if !p.IsRepeatForever {
+				config, errr := executeCommand(p, iteration, line, commandNumber)
+				if errr != nil {
+					log.Println("Exit Error:", err.Error())
+				}
+
+				if config.Repeat || config.Restart || p.IsRepeatForever {
+					log.Println("repeat enable - restarting command: [", line, "]")
+					glog.Println("repeat enable - restarting command:[", line, "]")
+					continue
+				} else {
 					break
 				}
-				log.Println("repeat enable - restarting command:", line)
-				glog.Println("repeat enable - restarting command:", line)
+				// if p.IsRepeatForever {
+				// 	continue
+				// }
 			}
 		})
 
