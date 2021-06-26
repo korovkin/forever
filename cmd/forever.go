@@ -283,9 +283,6 @@ func (p *Forever) Run() {
 				} else {
 					break
 				}
-				// if p.IsRepeatForever {
-				// 	continue
-				// }
 			}
 		})
 
