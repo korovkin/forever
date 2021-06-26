@@ -273,7 +273,7 @@ func (p *Forever) Run() {
 			for iteration := 0; true; iteration += 1 {
 				config, errr := executeCommand(p, iteration, line, commandNumber)
 				if errr != nil {
-					log.Println("Exit Error:", err.Error())
+					log.Println("Exit Error:", errr.Error())
 				}
 
 				if config.Repeat || config.Restart || p.IsRepeatForever {
