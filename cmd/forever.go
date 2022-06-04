@@ -40,9 +40,7 @@ type ForeverLogger struct {
 }
 
 var (
-	loggerMutex     = new(sync.Mutex)
-	loggerStartTime = time.Now()
-	loggerHostname  = ""
+	loggerMutex = new(sync.Mutex)
 
 	flag_verbose = flag.Bool(
 		"v",
@@ -81,7 +79,7 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 				if strings.TrimSpace(name) == "" {
 					name = fmt.Sprintf("%10d", l.CommandNum)
 				} else {
-					name = fmt.Sprintf("%-10s", name)
+					name = fmt.Sprintf("%03d %-10s", l.CommandNum, name)
 				}
 
 				if l.IsPrint {
@@ -158,7 +156,7 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 		if strings.TrimSpace(commandConfig.Name) == "" {
 			commandConfig.Name = fmt.Sprintf("%d", commandNumber)
 		} else {
-			commandConfig.Name = fmt.Sprintf("%s", commandConfig.Name)
+			commandConfig.Name = fmt.Sprintf("%03d: %s", commandNumber, commandConfig.Name)
 		}
 		loggerOut.CommandConfig = *commandConfig
 		loggerErr.CommandConfig = *commandConfig
@@ -174,14 +172,12 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 
 	defer func() {
 		dt := time.Since(T_START)
-		fmt.Fprintf(
-			loggerOut,
-			fmt.Sprintln(
-				"=> done:",
-				"iter:", iteration,
-				"cmdNum:", commandNumber,
-				"cmd:", commandLine,
-				"dt:", dt.String()))
+		fmt.Fprintln(loggerOut,
+			"=> done:",
+			"iter:", iteration,
+			"cmdNum:", commandNumber,
+			"cmd:", commandLine,
+			"dt:", dt.String())
 
 		if err == nil {
 			p.StatNumCommandsDone.With(labels).Inc()
@@ -196,15 +192,20 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	cmd.Stdin = nil
 	cmd.Stdout = loggerOut
 	cmd.Stderr = loggerErr
+	if commandConfig.WorkingDirectory != "" {
+		cmd.Dir = commandConfig.WorkingDirectory
+	}
 	cmd.Env = append(
 		os.Environ(),
-		fmt.Sprintf("FOREVER_ITERATION=%d", iteration),
-	)
+		fmt.Sprintf("FOREVER_ITERATION=%v", iteration))
+	cmd.Env = append(
+		os.Environ(),
+		fmt.Sprintf("FOREVER_NAME=%v", commandConfig.Name))
 
-	fmt.Fprintf(loggerOut, fmt.Sprintln(
+	fmt.Fprintln(loggerOut,
 		"iter:", iteration,
 		"cmdNum:", commandNumber,
-		"cmd: ", quote(commandLine)))
+		"cmd: ", quote(commandLine))
 
 	loggerOut.IsPrint = *flag_verbose
 	loggerOut.CommandNum = commandNumber
@@ -230,9 +231,10 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 }
 
 type ForeverCommandConfig struct {
-	Name    string `json:"name"`
-	Repeat  bool   `json:"repeat"`
-	Restart bool   `json:"restart"`
+	Name             string `json:"name"`
+	Repeat           bool   `json:"repeat"`
+	Restart          bool   `json:"restart"`
+	WorkingDirectory string `json:"cd"`
 }
 
 type Forever struct {
@@ -403,8 +405,6 @@ func main() {
 		"repeat",
 		true,
 		"repeat each process forever")
-
-	loggerHostname, _ = os.Hostname()
 
 	flag.Parse()
 	log.Println("concurrency:", *flag_concurrency)
