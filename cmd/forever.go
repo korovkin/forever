@@ -105,8 +105,8 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 
 			wrote += len(line)
 			if l.lines != nil {
-				l.lines.WithLabelValues("cmd_name", l.CommandConfig.Name).Inc()
-				l.lines.WithLabelValues("cmd_name", "all").Inc()
+				l.lines.WithLabelValues(l.CommandConfig.Name, fmt.Sprintf("%v", l.CommandConfig.Index)).Inc()
+				l.lines.WithLabelValues("all", "all").Inc()
 			}
 		}
 		if err != nil {
@@ -134,7 +134,7 @@ func quote(s string) string {
 	return "'" + s + "'"
 }
 
-func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int) (*ForeverCommandConfig, error) {
+func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int, commandConfig ForeverCommandConfig) error {
 	T_START := time.Now()
 	var err error
 	loggerOut := newLogger(commandNumber, true)
@@ -147,28 +147,16 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	loggerErr.Iteration = iteration
 	loggerErr.lines = p.StatLines
 
-	commandConfig := &ForeverCommandConfig{}
-	{
-		commandLineComp := strings.Split(commandLine, "#FOREVER:")
-		if len(commandLineComp) > 1 {
-			gotils.FromJSONString(commandLineComp[1], commandConfig)
-		}
-		if strings.TrimSpace(commandConfig.Name) == "" {
-			commandConfig.Name = fmt.Sprintf("%d", commandNumber)
-		} else {
-			commandConfig.Name = fmt.Sprintf("%03d: %s", commandNumber, commandConfig.Name)
-		}
-		loggerOut.CommandConfig = *commandConfig
-		loggerErr.CommandConfig = *commandConfig
-	}
+	loggerOut.CommandConfig = commandConfig
+	loggerErr.CommandConfig = commandConfig
 
 	labels := map[string]string{
-		"name": "cmd_name",
-		"arg":  commandConfig.Name,
+		"name":  commandConfig.Name,
+		"index": fmt.Sprintf("%v", commandConfig.Index),
 	}
 
 	p.StatNumCommandsStart.With(labels).Inc()
-	p.StatNumCommandsStart.WithLabelValues("cmd_name", "all").Inc()
+	p.StatNumCommandsStart.WithLabelValues("all", "all").Inc()
 
 	defer func() {
 		dt := time.Since(T_START)
@@ -177,8 +165,9 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 			"iter:", iteration,
 			"cmdNum:", commandNumber,
 			"cmd:", commandLine,
-			"dt:", dt.String())
-
+			"config:", gotils.ToJSONStringNoIndent(commandConfig),
+			"dt:", dt.String(),
+		)
 		if err == nil {
 			p.StatNumCommandsDone.With(labels).Inc()
 		} else {
@@ -216,21 +205,20 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	gotils.CheckFatal(err)
 	if err != nil {
 		log.Fatalln("failed to start:", err)
-		return commandConfig, err
+		return err
 	}
 
 	if err == nil {
 		err = cmd.Wait()
 	}
 
-	// if !cmd.ProcessState.Success() {
-	log.Println("process exit code:", cmd.ProcessState.ExitCode())
-	// }
+	glog.Println("process exit code:", commandLine, "exit code:", cmd.ProcessState.ExitCode())
 
-	return commandConfig, err
+	return err
 }
 
 type ForeverCommandConfig struct {
+	Index            int    `json:"index"`
 	Name             string `json:"name"`
 	Repeat           bool   `json:"repeat"`
 	Restart          bool   `json:"restart"`
@@ -260,26 +248,47 @@ func (p *Forever) Run() {
 	log.SetFlags(log.Lmicroseconds | log.Ldate | log.Lshortfile)
 	gotils.CheckFatal(err)
 
+	// current config:
+	commandConfig := ForeverCommandConfig{}
+
 	r := bufio.NewReaderSize(os.Stdin, 1*1024*1024)
 	log.Println("reading from stdin...")
-	commandNum := 0
+	commandNumber := 0
 	for {
+		commandConfig.Index = commandNumber
+
 		line, err := r.ReadString('\n')
 		if err == io.EOF {
 			break
 		}
-		line = strings.TrimSpace(line)
 
-		commandNumber := commandNum
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "#FOREVER:") {
+			commandLineComp := strings.Split(line, "#FOREVER:")
+			if len(commandLineComp) > 1 {
+				gotils.FromJSONString(commandLineComp[1], &commandConfig)
+			}
+			if strings.TrimSpace(commandConfig.Name) == "" {
+				commandConfig.Name = fmt.Sprintf("%d", commandNumber)
+			}
+			continue
+		} else if strings.HasPrefix(line, "#") {
+			continue
+		}
+
 		p.worker.ExecuteWithTicket(func(ticket int) {
 			for iteration := 0; true; iteration += 1 {
-				config, errr := executeCommand(p, iteration, line, commandNumber)
+				errr := executeCommand(p, iteration, line, commandNumber, commandConfig)
 				if errr != nil {
 					log.Println("Exit Error:", errr.Error())
 				}
 
-				if config.Repeat || config.Restart || p.IsRepeatForever {
-					log.Println("repeat enable - restarting command: [", line, "]")
+				if commandConfig.Repeat || commandConfig.Restart || p.IsRepeatForever {
+					// log.Println("repeat enable - restarting command: [", line, "]")
 					glog.Println("repeat enable - restarting command:[", line, "]")
 					continue
 				} else {
@@ -288,7 +297,7 @@ func (p *Forever) Run() {
 			}
 		})
 
-		commandNum += 1
+		commandNumber += 1
 	}
 }
 
@@ -304,7 +313,7 @@ func metricsServer(p *Forever, serverAddress string) {
 
 			starts := float64(0)
 			var m = &dto.Metric{}
-			if err := p.StatNumCommandsStart.WithLabelValues("cmd_name", "all").Write(m); err != nil {
+			if err := p.StatNumCommandsStart.WithLabelValues("all", "all").Write(m); err != nil {
 			} else {
 				starts = m.Counter.GetValue()
 			}
@@ -328,7 +337,7 @@ func metricsServer(p *Forever, serverAddress string) {
 }
 
 func setupPromMetrics(p *Forever, metricsAddress string) {
-	labels := []string{"name", "arg"}
+	labels := []string{"name", "index"}
 
 	p.StatNumCommandsStart = prometheus.NewCounterVec(
 		prometheus.CounterOpts{

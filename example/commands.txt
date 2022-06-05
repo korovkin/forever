@@ -1,5 +1,14 @@
-date;       sleep 2;        #FOREVER:{"name":"date"}
-ls;         sleep 4;        #FOREVER:{"name":"ls", "cd": "/"}
-date;       sleep 6;        #FOREVER:{"name":"date2"}
-ifconfig;   sleep 60;       #FOREVER:{}
-ping -c 10 www.google.com ; #FOREVER:{}
+#FOREVER:{"name":"date", "cd": "/bin"}
+date;       pwd;     sleep 2;
+
+#FOREVER:{"name":"ls", "cd": "/"}
+ls;         sleep 4;
+
+#FOREVER:{"name":"date2"}
+date;       sleep 6;
+
+#FOREVER:{}
+ifconfig;   sleep 10;
+
+# #FOREVER:{}
+# ping -c 10 www.google.com; sleep 60;

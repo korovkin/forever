@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"log"
 	"os"
@@ -46,4 +47,20 @@ func main() {
 		os.Exit(0)
 	}
 
+	fileScanner := bufio.NewScanner(os.Stdin)
+	fileScanner.Split(bufio.ScanLines)
+
+	for fileScanner.Scan() {
+		line := fileScanner.Text()
+
+		if len(line) > 2 {
+			for line[len(line)-1] == 92 && fileScanner.Scan() {
+				l := fileScanner.Text()
+				// log.Println("line:", line, "l:", l)
+				line = line[0 : len(line)-1]
+				line += l
+			}
+			log.Println("line:", line)
+		}
+	}
 }
