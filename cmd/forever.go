@@ -105,8 +105,8 @@ func (l *ForeverLogger) Write(p []byte) (int, error) {
 
 			wrote += len(line)
 			if l.lines != nil {
-				l.lines.WithLabelValues("cmd_name", l.CommandConfig.Name).Inc()
-				l.lines.WithLabelValues("cmd_name", "all").Inc()
+				l.lines.WithLabelValues(l.CommandConfig.Name, fmt.Sprintf("%v", l.CommandConfig.Index)).Inc()
+				l.lines.WithLabelValues("all", "all").Inc()
 			}
 		}
 		if err != nil {
@@ -151,12 +151,12 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 	loggerErr.CommandConfig = commandConfig
 
 	labels := map[string]string{
-		"name": "cmd_name",
-		"arg":  commandConfig.Name,
+		"name":  commandConfig.Name,
+		"index": fmt.Sprintf("%v", commandConfig.Index),
 	}
 
 	p.StatNumCommandsStart.With(labels).Inc()
-	p.StatNumCommandsStart.WithLabelValues("cmd_name", "all").Inc()
+	p.StatNumCommandsStart.WithLabelValues("all", "all").Inc()
 
 	defer func() {
 		dt := time.Since(T_START)
@@ -218,6 +218,7 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 }
 
 type ForeverCommandConfig struct {
+	Index            int    `json:"index"`
 	Name             string `json:"name"`
 	Repeat           bool   `json:"repeat"`
 	Restart          bool   `json:"restart"`
@@ -254,6 +255,8 @@ func (p *Forever) Run() {
 	log.Println("reading from stdin...")
 	commandNumber := 0
 	for {
+		commandConfig.Index = commandNumber
+
 		line, err := r.ReadString('\n')
 		if err == io.EOF {
 			break
@@ -310,7 +313,7 @@ func metricsServer(p *Forever, serverAddress string) {
 
 			starts := float64(0)
 			var m = &dto.Metric{}
-			if err := p.StatNumCommandsStart.WithLabelValues("cmd_name", "all").Write(m); err != nil {
+			if err := p.StatNumCommandsStart.WithLabelValues("all", "all").Write(m); err != nil {
 			} else {
 				starts = m.Counter.GetValue()
 			}
@@ -334,7 +337,7 @@ func metricsServer(p *Forever, serverAddress string) {
 }
 
 func setupPromMetrics(p *Forever, metricsAddress string) {
-	labels := []string{"name", "arg"}
+	labels := []string{"name", "index"}
 
 	p.StatNumCommandsStart = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
