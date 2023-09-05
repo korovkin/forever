@@ -134,6 +134,7 @@ func quote(s string) string {
 	return "'" + s + "'"
 }
 
+/// execute the given command
 func executeCommand(p *Forever, iteration int, commandLine string, commandNumber int, commandConfig ForeverCommandConfig) error {
 	T_START := time.Now()
 	var err error
@@ -164,7 +165,7 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 			"=> done:",
 			"iter:", iteration,
 			"cmdNum:", commandNumber,
-			"cmd:", commandLine,
+			"cmd:", quote(commandLine),
 			"config:", gotils.ToJSONStringNoIndent(commandConfig),
 			"dt:", dt.String(),
 		)
@@ -176,7 +177,7 @@ func executeCommand(p *Forever, iteration int, commandLine string, commandNumber
 		p.StatCommandLatency.With(labels).Observe(dt.Seconds())
 	}()
 
-	cs := []string{"/bin/bash", "-c", commandLine}
+	cs := []string{"/bin/bash", "-c", "trap 'kill $(jobs -p) ; echo forver: dead zebra;' EXIT; \n " + commandLine}
 	cmd := exec.Command(cs[0], cs[1:]...)
 	cmd.Stdin = nil
 	cmd.Stdout = loggerOut
@@ -437,9 +438,12 @@ func main() {
 	p := &Forever{}
 	p.ConcurrentCommands = *flag_concurrency
 	p.IsRepeatForever = *flag_is_repeat
+
+	// limit the concurrency:
 	p.worker = limiter.NewConcurrencyLimiter(p.ConcurrentCommands)
 	defer p.Close()
 
+	// setup the metrics:
 	setupPromMetrics(p, *flag_metrics_address)
 	p.Run()
 }
